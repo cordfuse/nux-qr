@@ -6,7 +6,10 @@
   "bin": {
     "nux-qr-tool": "./dist/qr-generator.js"
   },
-  "exports": "./dist/qr-generator.js",
+  "exports": {
+    ".": "./dist/qr-generator.js",
+    "./payload": "./dist/payload.js"
+  },
   "types": "./index.d.ts",
   "files": [
     "dist",
@@ -15,7 +18,8 @@
   ],
   "scripts": {
     "gen-fonts": "node scripts/gen-fonts.mjs",
-    "build": "bun build src/qr-generator.ts --outdir dist --target node --format esm && node -e \"const fs=require('fs'),f='dist/qr-generator.js';fs.writeFileSync(f,'#!/usr/bin/env node\\n'+fs.readFileSync(f,'utf8'))\"",
+    "build": "bun build src/qr-generator.ts --outdir dist --target node --format esm && node -e \"const fs=require('fs'),f='dist/qr-generator.js';fs.writeFileSync(f,'#!/usr/bin/env node\\n'+fs.readFileSync(f,'utf8'))\" && npm run build:payload",
+    "build:payload": "bun build src/payload.ts --outdir dist --target browser --format esm",
     "dev": "bun src/qr-generator.ts"
   },
   "dependencies": {
