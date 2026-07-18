@@ -1,0 +1,13 @@
+nux-qr-tool
+Copyright (c) Cordfuse
+
+This product includes NUX MightyAmp device data (amp / cabinet / effect id→model
+tables and effect parameter semantics) derived from:
+
+  mightier_amp — https://github.com/tuntorius/mightier_amp
+  Copyright (c) 2020-2021 Dian Iliev (Tuntorius)
+  Licensed under the MIT License.
+
+The id catalog in src/catalog.ts is extracted from that project's device
+definitions and used to validate presets against the real device firmware. Full
+license text: https://github.com/tuntorius/mightier_amp/blob/master/LICENSE.md

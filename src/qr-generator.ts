@@ -21,6 +21,7 @@ import { readFileSync, mkdirSync } from 'fs'
 import { resolve, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { REGULAR_TTF_GZ_B64, BOLD_TTF_GZ_B64 } from './fonts.js'
+import { NUX_CATALOG } from './catalog.js'
 
 // opentype.js ships a CJS `main` and an ESM `module`; the default export lands in
 // a different place depending on whether we run under Node (CJS) or a Bun bundle.
@@ -231,8 +232,52 @@ function b(v: unknown, fallback: boolean): boolean {
 
 const GENERIC_NAMES = new Set(['my tone','custom tone','preset','guitar tone','bass tone','my preset','tone','custom preset','unnamed tone'])
 
-export function coerceParams(raw: Record<string, unknown>): PresetParams {
-  const device = (raw.device as DeviceType) ?? 'plugpro'
+export interface ValidationResult { errors: string[]; warnings: string[] }
+
+/**
+ * Check a coerced preset's ids against the ground-truth catalog for its device.
+ *
+ * For a `confirmed` device (QR id + tables verified against tuntorius/mightier_amp),
+ * an id the firmware does not have is an ERROR — the encoder must not ship the
+ * caller's guess verbatim, because a wrong id silently loads a different amp/effect
+ * ("the tone isn't what was designed"). For `assumed`/`unknown` devices the catalog
+ * cannot vouch for the ids, so they are WARNINGS, not hard failures — we don't have
+ * ground truth to reject against, and pretending we do would be worse.
+ */
+export function validatePreset(p: PresetParams): ValidationResult {
+  const errors: string[] = []
+  const warnings: string[] = []
+  const cat = NUX_CATALOG[p.device]
+  if (!cat) { warnings.push(`no ground-truth catalog for device '${p.device}' — ids not validated`); return { errors, warnings } }
+
+  const hard = cat.confidence === 'confirmed'
+  if (!hard) warnings.push(`device '${p.device}' tables are '${cat.confidence}' (no verified ground truth) — ids left unchecked`)
+  const note = (msg: string) => (hard ? errors : warnings).push(msg)
+
+  const checkId = (label: string, id: number | undefined, table?: Record<number, string>) => {
+    if (id === undefined || !table) return
+    if (!(id in table)) {
+      const valid = Object.entries(table).map(([k, v]) => `${k}=${v}`).join(', ')
+      note(`${label} id ${id} is not valid for ${p.device}. Valid ${label} ids: ${valid}`)
+    }
+  }
+  checkId('amp', p.amp?.id, cat.amp)
+  checkId('cabinet', p.cabinet?.id, cat.cabinet)
+  for (const key of ['efx', 'compressor', 'modulation', 'delay', 'reverb'] as const) {
+    const eff = (p as unknown as Record<string, { id?: number } | undefined>)[key]
+    if (eff && eff.id !== undefined) checkId(key, eff.id, (cat as unknown as Record<string, Record<number, string> | undefined>)[key])
+  }
+  return { errors, warnings }
+}
+
+export function coerceParams(raw: Record<string, unknown>, opts: { validate?: boolean } = {}): PresetParams {
+  // R3 fix: device is REQUIRED. The old `?? 'plugpro'` silently emitted a Mighty
+  // Plug Pro (Pro / 113-byte / QR id 15) payload for whatever hardware the caller
+  // actually had — a wrong-device tone that looks fine until it's scanned. Fail loud.
+  const device = raw.device as DeviceType
+  if (!device || !(device in DEVICES)) {
+    throw new Error(`device is required and must be one of: ${Object.keys(DEVICES).join(', ')}. Got: ${JSON.stringify(raw.device)}`)
+  }
   const amp = (raw.amp as Record<string, unknown>) ?? {}
   const cab = (raw.cabinet as Record<string, unknown>) ?? {}
   const ng  = (raw.noise_gate as Record<string, unknown>) ?? {}
@@ -287,6 +332,18 @@ export function coerceParams(raw: Record<string, unknown>): PresetParams {
     const defaultBands = eqId === 3 ? new Array(11).fill(0) : new Array(6).fill(0)
     const bands = Array.isArray(e.bands) ? (e.bands as unknown[]).map(v => n(v, 0)) : defaultBands
     coerced.eq = { id: eqId, enabled: b(e.enabled ?? e.active, true), bands }
+  }
+
+  // Ground-truth id validation (on by default). Rejects an amp/cab/effect id the
+  // device firmware does not have, instead of encoding the caller's guess into a
+  // tone that loads as the wrong thing. Opt out with { validate: false } for raw
+  // encoding, but the default is to refuse a provably-wrong preset.
+  if (opts.validate !== false) {
+    const { errors, warnings } = validatePreset(coerced)
+    for (const w of warnings) console.warn(`[nux-qr-tool] ${w}`)
+    if (errors.length) {
+      throw new Error(`preset is not valid for ${coerced.device}:\n  - ${errors.join('\n  - ')}`)
+    }
   }
 
   return coerced

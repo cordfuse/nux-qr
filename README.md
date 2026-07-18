@@ -139,6 +139,24 @@ Returns `Promise<Buffer>` — the decorated PNG as a Buffer.
 
 ---
 
+## Ground-truth ID validation
+
+Since v1.6.0 the encoder validates amp/cabinet/effect IDs against the real device
+firmware before building a payload, using a catalog (`src/catalog.ts`) extracted
+from [tuntorius/mightier_amp](https://github.com/tuntorius/mightier_amp) (MIT). This
+stops the "wrong amp loads" class of bug where an out-of-range or wrong-device ID was
+silently written into the QR.
+
+- **`device` is required.** A missing device now throws instead of defaulting to
+  `plugpro` (which used to emit a Mighty Plug Pro payload for whatever hardware you
+  actually had).
+- On a **confirmed** device (QR ID + tables verified against the source), an ID the
+  firmware doesn't have is rejected with the list of valid IDs.
+- On **assumed**/**unknown** devices (newer Mk2/Go variants with no distinct source
+  device), IDs can't be checked against ground truth, so they're **warned**, not
+  rejected — see the `confidence` field per device in `src/catalog.ts`.
+- Pass `coerceParams(raw, { validate: false })` to bypass the gate for raw encoding.
+
 ## Preset JSON Format
 
 The CLI input JSON must include at minimum `artist`, `song`, `device`, and `amp`. All other fields are optional and default to off/zero.
